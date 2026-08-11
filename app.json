@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "hackchild",
+    "slug": "hackchild-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true
+  }
+}
