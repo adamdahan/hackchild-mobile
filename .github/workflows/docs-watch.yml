@@ -1,0 +1,70 @@
+name: docs-watch
+
+# Tells the author which architecture documents their change will age,
+# at the moment they open the PR — while they still remember why they changed it.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Which documents do these files back?
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          REPO_FULL: ${{ github.repository }}
+          ARCH: adamdahan/hackchild-architecture
+        run: |
+          set -euo pipefail
+
+          curl -sSfL -o watchers.json \
+            "https://raw.githubusercontent.com/$ARCH/main/index/watchers.json"
+
+          gh pr view "$PR" --repo "$REPO_FULL" --json files --jq '.files[].path' > changed.txt
+
+          : > hits.txt
+          while read -r f; do
+            [ -z "$f" ] && continue
+            jq -r --arg k "$REPO_NAME/$f" --arg f "$f" \
+              '(.[$k] // [])[] | "| `\($f)` | [\(.)](https://github.com/'"$ARCH"'/blob/main/\(.)) |"' \
+              watchers.json >> hits.txt
+          done < changed.txt
+
+          MARKER='<!-- docs-watch -->'
+          if [ -s hits.txt ]; then
+            n=$(wc -l < hits.txt | tr -d ' ')
+            {
+              echo "$MARKER"
+              echo "### This PR affects $n architecture document(s)"
+              echo
+              echo "| Changed file | Document it backs |"
+              echo "|---|---|"
+              cat hits.txt
+              echo
+              echo "Nothing is required of you. When this merges, those documents are flagged"
+              echo "for re-check and a draft update is opened against \`hackchild-architecture\`."
+            } > body.md
+          else
+            printf '%s\n_No architecture documents are affected by this PR._\n' "$MARKER" > body.md
+          fi
+
+          existing=$(gh api "repos/$REPO_FULL/issues/$PR/comments" \
+            --jq "[.[] | select(.body | startswith(\"$MARKER\")) | .id] | first // empty")
+
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO_FULL/issues/comments/$existing" -F body=@body.md >/dev/null
+            echo "updated comment $existing"
+          else
+            gh api -X POST "repos/$REPO_FULL/issues/$PR/comments" -F body=@body.md >/dev/null
+            echo "created comment"
+          fi
+
+          cat body.md
